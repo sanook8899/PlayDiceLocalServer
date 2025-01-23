@@ -271,14 +271,14 @@ function setBetRequest(bet) {
         vals: {},
     }
 
-    betInfo = {
+    betInfo = [{
         bet: awardBase,
         balance: balance,
         index: selectedMultiplierIndex,
         winAmount: winAmount,
         roundId: gameCode,
         finalBalance: balance + winAmount,
-    }
+    }]
     response.vals = {
         type: 100000,
         id: 3,
@@ -354,8 +354,15 @@ server.on("connection", (ws) => {
                 // set bet request
                 if (jsonContent.data[0].subData[0].opCode == "SetBet") {
                     let bet = jsonContent.data[0].subData[0].message.bet;
-                    let response = setBetRequest(bet);
-                    ws.send(JSON.stringify(response));
+                    //original
+                    //let response = setBetRequest(bet);
+                    //ws.send(JSON.stringify(response));
+                    // new
+                    let size = jsonContent.data[0].subData[0].message.size;
+                    for (let i = 0; i < size; i++) {
+                        let response = setBetRequest(bet);
+                        ws.send(JSON.stringify(response));
+                    }
                 }
             }
         }
