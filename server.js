@@ -13,15 +13,6 @@ var awardBase = 0;
 var gameType = 2;
 var roomId = 0;
 var records = [];
-var multiplierValue = [49, 14, 5.3, 2.1, 0.5, 0.2, 0.0, 0.2, 0.5, 2.1, 5.3, 14, 49];
-/*var probabilities = [0.00129327, 0.00129327, 0.02884998, 0.06565858, 0.14723438,
-    0.15718265, 0.19697573, 0.15718265, 0.14723438, 0.06565858,
-    0.02884998, 0.00129327, 0.00129327]; //95.46%
-*/
-var probabilities = [0.0005, 0.0005, 0.015, 0.0325, 0.075,
-    0.08, 0.593, 0.08, 0.075, 0.0325,
-    0.015, 0.0005, 0.0005]; //88.15%
-
 
 
 function generateRandomString(length) {
@@ -105,9 +96,10 @@ function joinRoomRequest() {
     }
 
     betInfo = {
-        gameName: "Plinko",
+        gameName: "LineDice",
         minBet: 1,
         maxBet: 1024,
+        defaultBet:1,
     }
 
     currencyInfo = {
@@ -126,7 +118,7 @@ function joinRoomRequest() {
                 errCode: 0,
                 balance: balance,
                 betInfo: [betInfo],
-                currencyInfo: currencyInfo,
+                currencyInfo: [currencyInfo],
             }]
         }
     }
@@ -204,7 +196,6 @@ function roomInfoRequest() {
     }
 
     roomInfo = {
-        betOdds: multiplierValue,
         minBet: 1,
         maxBet: 1024,
         recordList: records,
@@ -249,21 +240,48 @@ function roomListRequest() {
     return response;
 }
 
-function setBetRequest(bet) {
+function setBetRequest(bet, mode,  range, multiplier) {
+
+    let validMultiplier = calculateMultiplier(mode, range);
+    //console.log(validMultiplier, multiplier);
+    if (validMultiplier != multiplier) {
+        // bet failed
+        let response = {
+            errCode: 0,
+            errMsg: "success",
+            vals: {},
+        }
+
+        response.vals = {
+            type: 100000,
+            id: 3,
+            data: {
+                subType: 100071,
+                subData: [{
+                    errCode: -1,
+                    opCode: "SetBet",
+                    betInfo: betInfo,
+                }]
+            }
+        }
+
+        return response;
+    }
+
     awardBase = bet;
     gameCode = "#" + generateRandomString(10);
     balance -= awardBase;
 
-    var cumulativeProbabilities = probabilities.reduce((acc, curr, i) => {
-        if (i === 0) acc.push(curr);
-        else acc.push(acc[i - 1] + curr);
-        return acc;
-    }, []);
+    let randomValue = getRandomInclusive();
 
-    var randomNumber = Math.random();
-    var selectedMultiplierIndex = cumulativeProbabilities.findIndex(cumProb => randomNumber < cumProb);
+    // check random inclusive inside range
+    let valid = isInRange(randomValue, range);
 
-    let winAmount = multiplierValue[selectedMultiplierIndex - 1] * bet;
+    if (!valid) {
+        multiplier = 0;
+    }
+
+    let winAmount = multiplier * bet;
 
     let response = {
         errCode: 0,
@@ -274,7 +292,8 @@ function setBetRequest(bet) {
     betInfo = [{
         bet: awardBase,
         balance: balance,
-        index: selectedMultiplierIndex,
+        value: randomValue,
+        multiplier: multiplier,
         winAmount: winAmount,
         roundId: gameCode,
         finalBalance: balance + winAmount,
@@ -295,6 +314,66 @@ function setBetRequest(bet) {
     balance += winAmount;
 
     return response;
+}
+
+function calculateMultiplier(mode, ranges) {
+    function winChanceMode0([start, end]) {
+        return +(end - start).toFixed(2);
+    }
+
+    function winChanceMode1([start, end]) {
+        return Math.floor((end - start - 0.000001) * 100) / 100;
+    }
+
+    function winChanceMode2([start, end]) {
+        return Math.floor((end - start - 0.000001) * 100) / 100;
+    }
+
+    function winChanceMode3([r1start, r1end], [r2start, r2end]) {
+        const zone1 = +(r1end - r1start).toFixed(2);
+        const zone2 = +(r2end - r2start).toFixed(2);
+        return Math.floor((zone1 + zone2 - 0.000001) * 100) / 100;
+    }
+
+    function winChanceMode4([r1, r2]) {
+        let z1 = +(r1[1] - r1[0]).toFixed(2);
+        let z2 = +(r2[1] - r2[0]).toFixed(2);
+
+        if (z1 < 0.01) z1 = 0;
+        if (z2 < 0.01) z2 = 0;
+
+        if (z1 > 0 && z2 > 0 && z1 <= 0.02 && z2 <= 0.02) return z1;
+        return z1 + z2;
+    }
+
+    let winChance = 0;
+
+    if (mode === 0) winChance = winChanceMode0(ranges[0]);
+    else if (mode === 1) winChance = winChanceMode1(ranges[0]);
+    else if (mode === 2) winChance = winChanceMode2(ranges[0]);
+    else if (mode === 3) winChance = winChanceMode3(ranges[0], ranges[1]);
+    else if (mode === 4) winChance = winChanceMode4(ranges);
+
+    if (winChance <= 0) return 0;
+
+    if (mode === 0) {
+        return Math.round((99 / winChance + 0.00000001) * 10000) / 10000;
+    }
+
+    return Math.round((99 / winChance) * 10000) / 10000;
+}
+
+function getRandomInclusive() {
+    return Math.floor(Math.random() * 10001) / 100;
+}
+
+function isInRange(value, ranges) {
+    for (const [min, max] of ranges) {
+        if (value >= min && value <= max) {
+            return true;
+        }
+    }
+    return false;
 }
 
 
@@ -354,83 +433,17 @@ server.on("connection", (ws) => {
                 // set bet request
                 if (jsonContent.data[0].subData[0].opCode == "SetBet") {
                     let bet = jsonContent.data[0].subData[0].message.bet;
-                    //original
-                    //let response = setBetRequest(bet);
-                    //ws.send(JSON.stringify(response));
-                    // new
-                    let size = jsonContent.data[0].subData[0].message.size;
-                    for (let i = 0; i < size; i++) {
-                        let response = setBetRequest(bet);
-                        ws.send(JSON.stringify(response));
+                    let mode = jsonContent.data[0].subData[0].message.mode;
+                    let range = jsonContent.data[0].subData[0].message.range;
+                    let multiplier = jsonContent.data[0].subData[0].message.multiplier;
+                    let response = setBetRequest(bet, mode, range, multiplier);
+
+                    if (response == -1) {
+
                     }
+                    ws.send(JSON.stringify(response));
                 }
             }
         }
     })
-
-    function randomBetResult(bet) {
-        var multiplierValue = [49, 14, 5.3, 2.1, 0.5, 0.2, 0.0, 0.2, 0.5, 2.1, 5.3, 14, 49];
-        // Probabilities corresponding to each multiplier
-        var probabilities = [0.0035, 0.0035, 0.0355, 0.0709, 0.1418, 0.156, 0.1773, 0.156, 0.1418, 0.0709, 0.0355, 0.0035, 0.0035];
-
-        // Calculate cumulative probabilities for interval mapping
-        var cumulativeProbabilities = probabilities.reduce((acc, curr, i) => {
-            if (i === 0) acc.push(curr);
-            else acc.push(acc[i - 1] + curr);
-            return acc;
-        }, []);
-
-        // Generate a random number between 0 and 1
-        var randomNumber = Math.random();
-
-        // Determine which interval the random number falls into
-        var selectedMultiplierIndex = cumulativeProbabilities.findIndex(cumProb => randomNumber < cumProb);
-
-        // Calculate the win amount based on the selected multiplier
-        var winAmount = bet * multiplierValue[selectedMultiplierIndex];
-
-        return {
-            selectedMultiplier: multiplierValue[selectedMultiplierIndex],
-            winAmount: winAmount
-        };
-    }
-
-    function adjustProbabilities(currentRTP, targetRTP, probabilities) {
-        // Simplified adjustment logic: if the actual RTP is higher than the target, decrease the probability of high multipliers, and vice versa
-        if (currentRTP > targetRTP) {
-            // Decrease the probability of the highest multiplier slightly
-            probabilities[0] -= 0.001; // Example adjustment
-            probabilities[probabilities.length - 1] -= 0.001;
-        } else {
-            // Increase the probability of the highest multiplier slightly
-            probabilities[0] += 0.001;
-            probabilities[probabilities.length - 1] += 0.001;
-        }
-
-        // Ensure the probabilities still sum to 1 after adjustment
-        let sum = probabilities.reduce((acc, val) => acc + val, 0);
-        probabilities = probabilities.map(prob => prob / sum);
-
-        return probabilities;
-    }
-
-
-    function simulateBetWithDynamicRTP(bet, targetRTP) {
-        // Your existing logic to select a multiplier based on current probabilities
-
-        // Update total bets and total payouts
-        totalBets += bet;
-        // Assuming result is the outcome of the bet based on the current logic
-        let result = randomBetResult(bet); // This function needs to be defined as before, using current probabilities
-        totalPayouts += result.winAmount;
-
-        // Calculate current RTP
-        let currentRTP = totalPayouts / totalBets;
-
-        // Adjust probabilities based on current RTP vs. target RTP
-        let adjustedProbabilities = adjustProbabilities(currentRTP, targetRTP, probabilities); // probabilities should be defined globally or passed appropriately
-
-        // Use the adjusted probabilities for future bets
-        // This step would involve integrating the adjusted probabilities back into your bet selection logic
-    }
 });
