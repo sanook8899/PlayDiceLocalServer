@@ -196,8 +196,6 @@ function roomInfoRequest() {
     }
 
     roomInfo = {
-        minBet: 1,
-        maxBet: 1024,
         recordList: records,
     }
 
@@ -258,7 +256,7 @@ function setBetRequest(bet, mode,  range, multiplier) {
             data: {
                 subType: 100071,
                 subData: [{
-                    errCode: -1,
+                    errCode: 8100,
                     opCode: "SetBet",
                     betInfo: betInfo,
                 }]
