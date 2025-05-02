@@ -241,8 +241,10 @@ function roomListRequest() {
 function setBetRequest(bet, mode,  range, multiplier) {
 
     let validMultiplier = calculateMultiplier(mode, range);
-    //console.log(validMultiplier, multiplier);
-    if (validMultiplier != multiplier) {
+    //let winChance = calculateWinChance(mode, range);
+    console.log(validMultiplier, multiplier);
+    //console.log("winChance", winChance);
+    if (validMultiplier[0] != multiplier) {
         // bet failed
         let response = {
             errCode: 0,
@@ -270,12 +272,28 @@ function setBetRequest(bet, mode,  range, multiplier) {
     gameCode = "#" + generateRandomString(10);
     balance -= awardBase;
 
-    let randomValue = getRandomInclusive();
+    let winChance = getWinChanceInclusive();
 
-    // check random inclusive inside range
-    let valid = isInRange(randomValue, range);
+    let win = false;
+    //calculated win chance base on range
+    if (winChance <= validMultiplier[1]) {
+        win = true;
+    }
 
-    if (!valid) {
+    let valid = 0;
+    let randomValue = 0;
+
+    if (win) {
+        randomValue = getRandomInRanges(range);
+    }
+    else {
+        randomValue = getRandomOutsideRanges(range);
+    }
+
+    //// check random inclusive inside range
+    //let valid = isInRange(randomValue, range);
+
+    if (!win) {
         multiplier = 0;
     }
 
@@ -355,10 +373,58 @@ function calculateMultiplier(mode, ranges) {
     if (winChance <= 0) return 0;
 
     if (mode === 0) {
-        return Math.round((99 / winChance + 0.00000001) * 10000) / 10000;
+        return [Math.round((99 / winChance + 0.00000001) * 10000) / 10000, winChance];
     }
 
-    return Math.round((99 / winChance) * 10000) / 10000;
+    return [Math.round((99 / winChance) * 10000) / 10000, winChance];
+}
+
+
+function calculateWinChance(mode, ranges) {
+    if (!Array.isArray(ranges) || ranges.length === 0) return 0;
+
+    if (mode === 0 || mode === 1) {
+        // Mode 0 (Roll Under), Mode 1 (Roll Over)
+        const [start, end] = ranges[0];
+        // Mode 0 uses rounding (more forgiving), mode 1 uses floor (strict)
+        return mode === 0
+            ? Math.round((end - start) * 100) / 100
+            : Math.floor((end - start - 0.000001) * 100) / 100;
+    }
+
+    if (mode === 2) {
+        // Mode 2: Between
+        const [start, end] = ranges[0];
+        return Math.floor((end - start - 0.000001) * 100) / 100;
+    }
+
+    if (mode === 3) {
+        // Mode 3: Outside (two green zones)
+        const [r1, r2] = ranges;
+        const z1 = +(r1[1] - r1[0]).toFixed(2);
+        const z2 = +(r2[1] - r2[0]).toFixed(2);
+        return Math.floor((z1 + z2 - 0.000001) * 100) / 100;
+    }
+
+    if (mode === 4) {
+        // Mode 4: Double green zone with special conditions
+        const [r1, r2] = ranges;
+        let z1 = +(r1[1] - r1[0]).toFixed(2);
+        let z2 = +(r2[1] - r2[0]).toFixed(2);
+
+        if (z1 < 0.01) z1 = 0;
+        if (z2 < 0.01) z2 = 0;
+
+        if (z1 > 0 && z2 > 0 && z1 <= 0.02 && z2 <= 0.02) return z1;
+        return z1 + z2;
+    }
+
+    return 0;
+}
+
+function getWinChanceInclusive() {
+    const value = Math.random() * 100;
+    return Math.round(value * 100) / 100; // keep 2 decimal places
 }
 
 function getRandomInclusive() {
@@ -373,6 +439,32 @@ function isInRange(value, ranges) {
     }
     return false;
 }
+
+function getRandomInRanges(ranges) {
+    // Choose a random range from the list
+    const selected = ranges[Math.floor(Math.random() * ranges.length)];
+    const [min, max] = selected;
+
+    const value = min + Math.random() * (max - min);
+    return Math.round(value * 100) / 100;
+}
+
+
+function getRandomOutsideRanges(ranges) {
+    let value;
+    let valid = false;
+
+    while (!valid) {
+        value = Math.random() * 100;
+        value = Math.round(value * 100) / 100;
+
+        // Check if value is outside all ranges
+        valid = ranges.every(([min, max]) => value < min || value > max);
+    }
+
+    return value;
+}
+
 
 
 server.on("connection", (ws) => {
