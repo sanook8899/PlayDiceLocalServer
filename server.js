@@ -370,15 +370,19 @@ function calculateMultiplier(mode, ranges) {
     else if (mode === 3) winChance = winChanceMode3(ranges[0], ranges[1]);
     else if (mode === 4) winChance = winChanceMode4(ranges);
 
-    if (winChance <= 0) return 0;
+    if (winChance <= 0) return [0, 0];
 
+    let multiplier;
     if (mode === 0) {
-        return [Math.round((99 / winChance + 0.00000001) * 10000) / 10000, winChance];
+        // Match Cocos logic: floor winChance, then use exact division
+        const floored = Math.floor(winChance * 100) / 100;
+        multiplier = Number((99 / floored).toFixed(4));
+    } else {
+        multiplier = Number((99 / winChance).toFixed(4));
     }
 
-    return [Math.round((99 / winChance) * 10000) / 10000, winChance];
+    return [multiplier, winChance];
 }
-
 
 function calculateWinChance(mode, ranges) {
     if (!Array.isArray(ranges) || ranges.length === 0) return 0;
@@ -465,8 +469,6 @@ function getRandomOutsideRanges(ranges) {
     return value;
 }
 
-
-
 server.on("connection", (ws) => {
     wsocket = ws;
 
@@ -528,9 +530,6 @@ server.on("connection", (ws) => {
                     let multiplier = jsonContent.data[0].subData[0].message.multiplier;
                     let response = setBetRequest(bet, mode, range, multiplier);
 
-                    if (response == -1) {
-
-                    }
                     ws.send(JSON.stringify(response));
                 }
             }
